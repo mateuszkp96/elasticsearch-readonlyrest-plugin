@@ -176,43 +176,67 @@ trait BaseIndicesProcessor {
   }
 
   private def filterAssumingThatIndicesAreRequestedAndDataStreamsAreConfigured[T <: ClusterIndexName : Matchable](requestedIndices: UniqueNonEmptyList[T])(implicit indicesManager: IndicesManager[T]) = {
-    indicesManager
-      .backingIndicesPerDataStreamMap
-      .map { backingIndicesPerDataStream =>
-        val requestedBackingIndicesMatcher = PatternsMatcher.create(requestedIndices)
 
-        val requestedBackingIndicesPerDataStream: Map[T, UniqueNonEmptyList[T]] =
-          backingIndicesPerDataStream
-            .flatMap {
-              case (dataStreamName, backingIndices) =>
-                // we skip the backing indices for a given data stream when the data stream name matches the indices pattern too
-                // (for indices pattern like (e.g. `*logs*`) the query would be exploded to logs_ds, .ds-logs_ds_0001, .ds-logs_ds_0002, etc.
-                // passing the data stream name for such case is enough
-                if (!requestedBackingIndicesMatcher.`match`(dataStreamName)) {
-                  UniqueNonEmptyList.fromIterable(
-                      requestedBackingIndicesMatcher.filter(backingIndices)
-                    )
-                    .map(indices => (dataStreamName, indices))
-                } else {
-                  Option.empty[(T, UniqueNonEmptyList[T])]
-                }
-            }
-        val allowedMatcher = indicesManager.allowedIndicesMatcher
-        val backingIndicesMatchedByAllowedDataStreamName =
-          requestedBackingIndicesPerDataStream
-            .filter {
-              case (dataStreamName, backingIndices) => allowedMatcher.`match`(dataStreamName)
-            }
-            .values
-            .flatten
-        val backingIndicesMatchedByAllowedBackingIndices =
-          requestedBackingIndicesPerDataStream
-            .flatMap {
-              case (dataStreamName, backingIndices) => allowedMatcher.filter(backingIndices)
-            }
-            .toSet
-        backingIndicesMatchedByAllowedDataStreamName ++ backingIndicesMatchedByAllowedBackingIndices
+    for {
+      aliasesPerDataStream <- indicesManager.dataStreamsPerAliasMap.map { dataStreamsPerAliasMap =>
+        dataStreamsPerAliasMap
+          .toList
+          .flatMap { case (alias, dataStrems) =>
+            dataStrems.map(ds => (ds, alias))
+          }
+          .groupBy((dataStream, _) => dataStream)
+          .map { case (datastream, aliasesPerDataStream) =>
+            (datastream, aliasesPerDataStream.map(_._2))
+          }
       }
+      backingIndicesPerDataStream <- indicesManager.backingIndicesPerDataStreamMap
+    } yield {
+      val requestedBackingIndicesMatcher = PatternsMatcher.create(requestedIndices)
+
+      val requestedBackingIndicesPerDataStream: Map[T, UniqueNonEmptyList[T]] =
+        backingIndicesPerDataStream
+          .flatMap {
+            case (dataStreamName, backingIndices) =>
+              // we skip the backing indices for a given data stream when the data stream name matches the indices pattern too
+              // (for indices pattern like (e.g. `*logs*`) the query would be exploded to logs_ds, .ds-logs_ds_0001, .ds-logs_ds_0002, etc.
+              // passing the data stream name for such case is enough
+              if (!requestedBackingIndicesMatcher.`match`(dataStreamName)) {
+                UniqueNonEmptyList.fromIterable(
+                    requestedBackingIndicesMatcher.filter(backingIndices)
+                  )
+                  .map(indices => (dataStreamName, indices))
+              } else {
+                Option.empty[(T, UniqueNonEmptyList[T])]
+              }
+          }
+      val allowedMatcher = indicesManager.allowedIndicesMatcher
+      val backingIndicesMatchedByAllowedDataStreamName =
+        requestedBackingIndicesPerDataStream
+          .filter {
+            case (dataStreamName, backingIndices) =>
+              allowedMatcher.`match`(dataStreamName)
+          }
+          .values
+          .flatten
+      val backingIndicesMatchedByAllowedBackingIndices =
+        requestedBackingIndicesPerDataStream
+          .flatMap {
+            case (dataStreamName, backingIndices) => allowedMatcher.filter(backingIndices)
+          }
+          .toSet
+      val backingIndicesMatchedByAllowedDataStreamAlias =
+        requestedBackingIndicesPerDataStream
+          .filter {
+            case (dataStreamName, backingIndices) =>
+              aliasesPerDataStream.getOrElse(dataStreamName, Set.empty).exists(aliasName => allowedMatcher.`match`(aliasName))
+          }
+          .values
+          .flatten
+
+      backingIndicesMatchedByAllowedDataStreamName ++
+        backingIndicesMatchedByAllowedBackingIndices ++
+        backingIndicesMatchedByAllowedDataStreamAlias
+    }
   }
 
   private def filterAssumingThatAliasesAreRequestedAndAliasesAreConfigured[T <: ClusterIndexName : Matchable](requestedIndices: UniqueNonEmptyList[T])

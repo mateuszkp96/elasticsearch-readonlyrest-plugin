@@ -236,6 +236,38 @@ trait IndicesRuleDataStreamTests {
           found = Set(clusterIndexName("test-ds1"), clusterIndexName("test-ds2"))
         )
       }
+      "one backing index passed, one full data stream alias configured" in {
+        assertMatchRuleForIndexRequest(
+          configured = NonEmptySet.of(indexNameVar("test_alias")),
+          requestIndices = Set(clusterIndexName(".ds-test-ds1")),
+          modifyRequestContext = _.copy(
+            allIndicesAndAliases = Set.empty,
+            allDataStreamsAndAliases = Set(
+              fullLocalDataStreamWithAliases(fullDataStreamName("test-ds1"), Set(fullDataStreamName("test_alias"))),
+              fullLocalDataStreamWithAliases(fullDataStreamName("test-ds2"), Set(fullDataStreamName("test_alias"))),
+              fullLocalDataStreamWithAliases(fullDataStreamName("test-ds3"), Set(fullDataStreamName("test_alias"))),
+              fullLocalDataStreamWithAliases(fullDataStreamName("test-ds4"), Set(fullDataStreamName("test_alias")))
+            )
+          ),
+          found = Set(clusterIndexName(".ds-test-ds1"))
+        )
+      }
+      "one backing index passed, one data stream alias pattern configured" in {
+        assertMatchRuleForIndexRequest(
+          configured = NonEmptySet.of(indexNameVar("test_al*")),
+          requestIndices = Set(clusterIndexName(".ds-test-ds1")),
+          modifyRequestContext = _.copy(
+            allIndicesAndAliases = Set.empty,
+            allDataStreamsAndAliases = Set(
+              fullLocalDataStreamWithAliases(fullDataStreamName("test-ds1"), Set(fullDataStreamName("test_alias"))),
+              fullLocalDataStreamWithAliases(fullDataStreamName("test-ds2"), Set(fullDataStreamName("test_alias"))),
+              fullLocalDataStreamWithAliases(fullDataStreamName("test-ds3"), Set(fullDataStreamName("test_alias"))),
+              fullLocalDataStreamWithAliases(fullDataStreamName("test-ds4"), Set(fullDataStreamName("test_alias")))
+            )
+          ),
+          found = Set(clusterIndexName(".ds-test-ds1"))
+        )
+      }
       "one backing index passed, one data stream configured, there is one real data stream" in {
         assertMatchRuleForIndexRequest(
           configured = NonEmptySet.of(indexNameVar("test1_ds")),
